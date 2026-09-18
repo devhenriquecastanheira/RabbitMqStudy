@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using RabbitMQ.Client;
+using RabbitMq.Contracts;
 
 const string exchangeName = "orders.exchange";
 const string queueName = "orders.created";
@@ -48,13 +49,12 @@ await channel.QueueBindAsync(
     routingKey: routingKey
 );
 
-var order = new
-{
-    Id = Guid.NewGuid(),
-    Customer = "Henrique",
-    Total = 199.90m,
-    CreatedAt = DateTime.UtcNow
-};
+var order = new OrderCreatedMessage(
+    Guid.NewGuid(),
+    "Henrique",
+    199.90m,
+    DateTime.UtcNow
+);
 
 var json = JsonSerializer.Serialize(order);
 

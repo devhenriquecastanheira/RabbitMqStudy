@@ -1,6 +1,8 @@
 ﻿using System.Text;
+using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using RabbitMq.Contracts;
 
 const string queueName = "orders.created";
 
@@ -41,9 +43,17 @@ consumer.ReceivedAsync += async (_, ea) =>
     var body = ea.Body.ToArray();
 
     var message = Encoding.UTF8.GetString(body);
+    
+    var order = JsonSerializer.Deserialize<OrderCreatedMessage>(message);
 
-    Console.WriteLine("Mensagem recebida:");
-    Console.WriteLine(message);
+    if (order is not null)
+    {
+        Console.WriteLine("Pedido recebido:");
+        Console.WriteLine($"Id: {order.Id}");
+        Console.WriteLine($"Cliente: {order.Customer}");
+        Console.WriteLine($"Total: {order.Total}");
+        Console.WriteLine($"Criado em: {order.CreatedAt}");
+    }
 
     await channel.BasicAckAsync(
         deliveryTag: ea.DeliveryTag,
