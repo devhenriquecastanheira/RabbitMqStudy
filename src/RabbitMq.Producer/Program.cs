@@ -4,7 +4,6 @@ using RabbitMQ.Client;
 using RabbitMq.Contracts;
 
 const string exchangeName = "orders.exchange";
-const string queueName = "orders.created";
 const string routingKey = "order.created";
 
 var username = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER");
@@ -33,20 +32,6 @@ await channel.ExchangeDeclareAsync(
     exchange: exchangeName,
     type: ExchangeType.Direct,
     durable: true
-);
-
-await channel.QueueDeclareAsync(
-    queue: queueName,
-    durable: true,
-    exclusive: false,
-    autoDelete: false,
-    arguments: null
-);
-
-await channel.QueueBindAsync(
-    queue: queueName,
-    exchange: exchangeName,
-    routingKey: routingKey
 );
 
 var order = new OrderCreatedMessage(
