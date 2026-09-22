@@ -1,7 +1,9 @@
 ﻿using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using RabbitMq.Consumer.Data;
 using RabbitMq.Contracts;
 
 const string exchangeName = "orders.exchange";
@@ -40,6 +42,10 @@ var factory = new ConnectionFactory
 await using var connection = await factory.CreateConnectionAsync();
 
 await using var channel = await connection.CreateChannelAsync();
+
+await using var dbContext = new ConsumerDbContext();
+
+await dbContext.Database.EnsureCreatedAsync();
 
 await channel.BasicQosAsync(
     prefetchSize: 0,
@@ -120,8 +126,6 @@ await channel.QueueBindAsync(
     routingKey: routingKey
 );
 
-var processedMessages = new HashSet<Guid>();
-
 var consumer = new AsyncEventingBasicConsumer(channel);
 
 consumer.ReceivedAsync += async (_, ea) =>
@@ -134,7 +138,10 @@ consumer.ReceivedAsync += async (_, ea) =>
 
         var order = JsonSerializer.Deserialize<OrderCreatedMessage>(message);
         
-        if (processedMessages.Contains(order.MessageId))
+        var alreadyProcessed = await dbContext.ProcessedMessages
+            .AnyAsync(x => x.MessageId == order.MessageId);
+
+        if (alreadyProcessed)
         {
             Console.WriteLine(
                 $"Mensagem {order.MessageId} já foi processada. Ignorando duplicata."
@@ -160,7 +167,15 @@ consumer.ReceivedAsync += async (_, ea) =>
         Console.WriteLine($"Total: {order.Total}");
         Console.WriteLine($"Criado em: {order.CreatedAt}");
 
-        processedMessages.Add(order.MessageId);
+        dbContext.ProcessedMessages.Add(
+            new ProcessedMessage
+            {
+                MessageId = order.MessageId,
+                ProcessedAt = DateTime.UtcNow
+            }
+        );
+
+        await dbContext.SaveChangesAsync();
 
         await channel.BasicAckAsync(
             deliveryTag: ea.DeliveryTag,
