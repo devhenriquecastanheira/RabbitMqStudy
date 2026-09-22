@@ -12,6 +12,13 @@ const string deadLetterExchangeName = "orders.dlx";
 const string deadLetterQueueName = "orders.created.dlq";
 const string deadLetterRoutingKey = "order.created.dead";
 
+const string retryExchangeName = "orders.retry.exchange";
+const string retryQueueName = "orders.created.retry";
+const string retryRoutingKey = "order.created.retry";
+
+const int retryDelayMilliseconds = 5000;
+const int maxRetries = 3;
+
 var username = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER");
 var password = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS");
 
@@ -44,6 +51,33 @@ await channel.ExchangeDeclareAsync(
     exchange: deadLetterExchangeName,
     type: ExchangeType.Direct,
     durable: true
+);
+
+await channel.ExchangeDeclareAsync(
+    exchange: retryExchangeName,
+    type: ExchangeType.Direct,
+    durable: true
+);
+
+var retryQueueArguments = new Dictionary<string, object?>
+{
+    ["x-message-ttl"] = retryDelayMilliseconds,
+    ["x-dead-letter-exchange"] = exchangeName,
+    ["x-dead-letter-routing-key"] = routingKey
+};
+
+await channel.QueueDeclareAsync(
+    queue: retryQueueName,
+    durable: true,
+    exclusive: false,
+    autoDelete: false,
+    arguments: retryQueueArguments
+);
+
+await channel.QueueBindAsync(
+    queue: retryQueueName,
+    exchange: retryExchangeName,
+    routingKey: retryRoutingKey
 );
 
 await channel.QueueDeclareAsync(
@@ -80,14 +114,6 @@ await channel.QueueBindAsync(
     routingKey: routingKey
 );
 
-await channel.QueueDeclareAsync(
-    queue: queueName,
-    durable: true,
-    exclusive: false,
-    autoDelete: false,
-    arguments: queueArguments
-);
-
 var consumer = new AsyncEventingBasicConsumer(channel);
 
 consumer.ReceivedAsync += async (_, ea) =>
@@ -122,13 +148,55 @@ consumer.ReceivedAsync += async (_, ea) =>
     {
         Console.WriteLine($"Erro ao processar mensagem: {ex.Message}");
 
-        await channel.BasicNackAsync(
-            deliveryTag: ea.DeliveryTag,
-            multiple: false,
-            requeue: false
-        );
+        var retryCount = 0;
 
-        Console.WriteLine("NACK enviado.");
+        if (ea.BasicProperties.Headers is not null &&
+            ea.BasicProperties.Headers.TryGetValue("x-retry-count", out var value))
+        {
+            retryCount = Convert.ToInt32(value);
+        }
+
+        if (retryCount < maxRetries)
+        {
+            var retryProperties = new BasicProperties
+            {
+                ContentType = "application/json",
+                DeliveryMode = DeliveryModes.Persistent,
+                Headers = new Dictionary<string, object?>
+                {
+                    ["x-retry-count"] = retryCount + 1
+                }
+            };
+
+            await channel.BasicPublishAsync(
+                exchange: retryExchangeName,
+                routingKey: retryRoutingKey,
+                mandatory: false,
+                basicProperties: retryProperties,
+                body: ea.Body
+            );
+
+            await channel.BasicAckAsync(
+                deliveryTag: ea.DeliveryTag,
+                multiple: false
+            );
+
+            Console.WriteLine(
+                $"Retry {retryCount + 1}/{maxRetries} agendado."
+            );
+        }
+        else
+        {
+            await channel.BasicNackAsync(
+                deliveryTag: ea.DeliveryTag,
+                multiple: false,
+                requeue: false
+            );
+
+            Console.WriteLine(
+                "Limite de retries atingido. Mensagem enviada para a DLQ."
+            );
+        }
     }
 };
 
