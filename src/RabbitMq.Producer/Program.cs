@@ -4,7 +4,7 @@ using RabbitMQ.Client;
 using RabbitMq.Contracts;
 
 const string exchangeName = "orders.exchange";
-const string routingKey = "order.created.invalid";
+const string routingKey = "order.created";
 
 var username = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER");
 var password = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS");
@@ -41,6 +41,7 @@ await channel.ExchangeDeclareAsync(
 );
 
 var order = new OrderCreatedMessage(
+    Guid.NewGuid(),
     Guid.NewGuid(),
     "Henrique",
     199.90m,

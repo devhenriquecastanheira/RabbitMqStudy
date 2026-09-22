@@ -120,6 +120,8 @@ await channel.QueueBindAsync(
     routingKey: routingKey
 );
 
+var processedMessages = new HashSet<Guid>();
+
 var consumer = new AsyncEventingBasicConsumer(channel);
 
 consumer.ReceivedAsync += async (_, ea) =>
@@ -131,6 +133,20 @@ consumer.ReceivedAsync += async (_, ea) =>
         var message = Encoding.UTF8.GetString(body);
 
         var order = JsonSerializer.Deserialize<OrderCreatedMessage>(message);
+        
+        if (processedMessages.Contains(order.MessageId))
+        {
+            Console.WriteLine(
+                $"Mensagem {order.MessageId} já foi processada. Ignorando duplicata."
+            );
+
+            await channel.BasicAckAsync(
+                deliveryTag: ea.DeliveryTag,
+                multiple: false
+            );
+
+            return;
+        }
 
         if (order is null)
         {
@@ -138,10 +154,13 @@ consumer.ReceivedAsync += async (_, ea) =>
         }
 
         Console.WriteLine("Pedido recebido:");
+        Console.WriteLine($"MessageId: {order.MessageId}");
         Console.WriteLine($"Id: {order.Id}");
         Console.WriteLine($"Cliente: {order.Customer}");
         Console.WriteLine($"Total: {order.Total}");
         Console.WriteLine($"Criado em: {order.CreatedAt}");
+
+        processedMessages.Add(order.MessageId);
 
         await channel.BasicAckAsync(
             deliveryTag: ea.DeliveryTag,
