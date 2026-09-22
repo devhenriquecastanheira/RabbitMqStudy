@@ -41,6 +41,12 @@ await using var connection = await factory.CreateConnectionAsync();
 
 await using var channel = await connection.CreateChannelAsync();
 
+await channel.BasicQosAsync(
+    prefetchSize: 0,
+    prefetchCount: 1,
+    global: false
+);
+
 await channel.ExchangeDeclareAsync(
     exchange: exchangeName,
     type: ExchangeType.Direct,
