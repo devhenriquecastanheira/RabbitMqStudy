@@ -4,7 +4,7 @@ using RabbitMQ.Client;
 using RabbitMq.Contracts;
 
 const string exchangeName = "orders.exchange";
-const string routingKey = "order.created";
+const string routingKey = "order.created.invalid";
 
 var username = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER");
 var password = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS");
@@ -26,7 +26,13 @@ var factory = new ConnectionFactory
 
 await using var connection = await factory.CreateConnectionAsync();
 
-await using var channel = await connection.CreateChannelAsync();
+var channelOptions = new CreateChannelOptions(
+    publisherConfirmationsEnabled: true,
+    publisherConfirmationTrackingEnabled: true
+);
+
+await using var channel =
+    await connection.CreateChannelAsync(channelOptions);
 
 await channel.ExchangeDeclareAsync(
     exchange: exchangeName,
@@ -51,13 +57,20 @@ var properties = new BasicProperties
     DeliveryMode = DeliveryModes.Persistent
 };
 
-await channel.BasicPublishAsync(
-    exchange: exchangeName,
-    routingKey: routingKey,
-    mandatory: false,
-    basicProperties: properties,
-    body: body
-);
+try
+{
+    await channel.BasicPublishAsync(
+        exchange: exchangeName,
+        routingKey: routingKey,
+        mandatory: true,
+        basicProperties: properties,
+        body: body
+    );
 
-Console.WriteLine("Mensagem enviada com sucesso!");
-Console.WriteLine(json);
+    Console.WriteLine("Mensagem confirmada pelo RabbitMQ!");
+    Console.WriteLine(json);
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Erro ao publicar mensagem: {ex.Message}");
+}
